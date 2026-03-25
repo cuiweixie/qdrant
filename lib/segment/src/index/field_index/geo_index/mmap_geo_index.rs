@@ -5,6 +5,7 @@ use common::counter::conditioned_counter::ConditionedCounter;
 use common::counter::hardware_counter::HardwareCounterCell;
 use common::fs::{atomic_save_json, clear_disk_cache, read_json};
 use common::mmap::{AdviceSetting, MmapSlice, create_and_ensure_length, open_write_mmap};
+use common::stored_bitslice::StoredBitSlice;
 use common::types::PointOffsetType;
 use common::universal_io::{MmapFile, OpenOptions};
 use fs_err as fs;
@@ -15,7 +16,6 @@ use super::mutable_geo_index::InMemoryGeoMapIndex;
 use crate::common::Flusher;
 use crate::common::mmap_bitslice_buffered_update_wrapper::MmapBitSliceBufferedUpdateWrapper;
 use crate::common::operation_error::{OperationError, OperationResult};
-use crate::common::stored_bitslice::MmapBitSlice;
 use crate::index::field_index::geo_hash::{GeoHash, GeoHashRaw};
 use crate::index::field_index::stored_point_to_values::StoredPointToValues;
 use crate::types::GeoPoint;
@@ -178,7 +178,8 @@ impl MmapGeoMapIndex {
                     .div_ceil(u8::BITS as usize)
                     .next_multiple_of(size_of::<usize>()),
             )?;
-            let mut deleted = MmapBitSlice::open(&deleted_path, OpenOptions::default())?;
+            let mut deleted =
+                <StoredBitSlice<MmapFile>>::open(&deleted_path, OpenOptions::default())?;
             deleted.set_ascending_bits_batch(
                 dynamic_index
                     .point_to_values
@@ -240,7 +241,7 @@ impl MmapGeoMapIndex {
         };
         let point_to_values = StoredPointToValues::open(path, true)?;
 
-        let deleted = MmapBitSlice::open(
+        let deleted = <StoredBitSlice<MmapFile>>::open(
             &deleted_path,
             OpenOptions {
                 populate: Some(populate),
