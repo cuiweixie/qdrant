@@ -75,7 +75,7 @@ impl ImmutableGeoMapIndex {
                 .iter()
                 .map(|item| ReadRange {
                     byte_offset: u64::from(item.ids_start) * size_of::<PointOffsetType>() as u64,
-                    length: u64::from(item.ids_end - item.ids_start),
+                    length: u64::from(item.ids_end.saturating_sub(item.ids_start)),
                 })
                 .enumerate(),
             |i, ids| {
