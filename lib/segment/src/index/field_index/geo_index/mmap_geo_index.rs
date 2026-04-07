@@ -1,12 +1,11 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use ahash::HashSet;
-use common::binary_search::{binary_search_by, partition_point};
+use common::binary_search::binary_search_by;
 use common::counter::conditioned_counter::ConditionedCounter;
 use common::counter::hardware_counter::HardwareCounterCell;
 use common::fs::{atomic_save_json, clear_disk_cache, read_json};
-use common::generic_consts::Random;
+use common::generic_consts::{Random, Sequential};
 use common::mmap::{MmapSlice, create_and_ensure_length};
 use common::types::PointOffsetType;
 use common::universal_io::{MmapFile, OpenOptions, ReadRange, TypedStorage, UniversalRead};
@@ -315,6 +314,41 @@ impl<S: MmapGeoMapIndexStorage> MmapGeoMapIndex<S> {
             .unwrap_or(0)
     }
 
+    pub(super) fn points_per_hash(
+        &self,
+    ) -> OperationResult<impl Iterator<Item = OperationResult<(GeoHash, usize)>> + '_> {
+        let len = self.storage.counts_per_hash.len()?;
+        let chunks = ReadRange {
+            byte_offset: 0,
+            length: len,
+        }
+        .iter_autochunks::<Counts>();
+
+        let mut iter = self
+            .storage
+            .counts_per_hash
+            .read_iter::<Sequential, _>(chunks.map(|r| ((), r)));
+        let mut current: Cow<'_, [Counts]> = Cow::Borrowed(&[]);
+        let mut chunk_pos_it = 0..0;
+
+        Ok(std::iter::from_fn(move || {
+            loop {
+                if let Some(pos) = chunk_pos_it.next() {
+                    let c = current[pos];
+                    return Some(Ok((c.hash.normalize(), c.points as usize)));
+                }
+                match iter.next() {
+                    Some(Ok(((), chunk))) => {
+                        current = chunk;
+                        chunk_pos_it = 0..current.len();
+                    }
+                    Some(Err(e)) => return Some(Err(OperationError::from(e))),
+                    None => return None,
+                }
+            }
+        }))
+    }
+
     pub fn points_of_hash(
         &self,
         hash: GeoHash,
@@ -413,19 +447,19 @@ impl<S: MmapGeoMapIndexStorage> MmapGeoMapIndex<S> {
         }
     }
 
-    /// Insert into `result` all point IDs which have the `geohash` prefix.
-    pub fn stored_sub_regions(
+    /// Returns an iterator over all point IDs which have the `geohash` prefix.
+    /// Note: Point ID may be repeated multiple times in the iterator.
+    pub(super) fn stored_sub_regions(
         &self,
-        result: &mut HashSet<PointOffsetType>,
         geohash: GeoHash,
-    ) -> OperationResult<()> {
-        let len = self.storage.points_map.len()? as usize;
+    ) -> OperationResult<impl Iterator<Item = OperationResult<PointOffsetType>> + '_> {
+        let len = self.storage.points_map.len()?;
 
         // self.storage.points_map - sorted array sorted by GeoHash
         // Here we search for a range of GeoHashes, which are inside requested `geohash`
 
         let read_one = |idx| -> OperationResult<PointKeyValue> {
-            let range = ReadRange::one((idx * size_of::<PointKeyValue>()) as u64);
+            let range = ReadRange::one(idx * size_of::<PointKeyValue>() as u64);
             let value = self.storage.points_map.read::<Random>(range)?;
             Ok(value[0])
         };
@@ -433,36 +467,87 @@ impl<S: MmapGeoMapIndexStorage> MmapGeoMapIndex<S> {
             read_one(idx).map(|c| c.hash.normalize().cmp(&geohash))
         })?
         .unwrap_or_else(|i| i);
-        // ToDo: we want to try this as iterator
-        let end_index = partition_point(start_index..len, |idx| {
-            read_one(idx).map(|c| c.hash.normalize().starts_with(geohash))
-        })?;
 
-        let mut ranges = Vec::with_capacity(end_index - start_index);
-        self.storage.points_map.read_batch_autochunks(
-            [ReadRange {
-                byte_offset: (start_index * size_of::<PointKeyValue>()) as u64,
-                length: (end_index - start_index) as u64,
-            }],
-            |point_key_value| {
-                let start = u64::from(point_key_value.ids_start);
-                let end = u64::from(point_key_value.ids_end);
-                ranges.push(ReadRange {
-                    byte_offset: start * size_of::<PointOffsetType>() as u64,
-                    length: end - start,
-                });
-            },
-        )?;
+        // Iterate from start_index to end of file in chunks, stopping once we
+        // find an item outside the geohash prefix.  read_iter may return chunks
+        // out of order (io_uring), so we track received chunks with a bitset
+        // and break only when all chunks before the boundary have been seen.
+        let chunks_iter = ReadRange {
+            byte_offset: start_index * size_of::<PointKeyValue>() as u64,
+            length: len - start_index,
+        }
+        .iter_autochunks::<PointKeyValue>();
 
-        self.storage
-            .points_map_ids
-            .read_batch_autochunks(ranges, |point_id| {
-                if !self.storage.deleted.get(point_id as usize).unwrap_or(true) {
-                    result.insert(point_id);
+        let mut ranges: Vec<ReadRange> = Vec::new();
+        let mut limit_chunk: Option<usize> = None;
+        let mut received = bitvec::vec::BitVec::<usize>::EMPTY;
+
+        for chunk_result in self
+            .storage
+            .points_map
+            .read_iter::<Sequential, _>(chunks_iter.enumerate())
+        {
+            let (chunk_idx, chunk) = chunk_result?;
+
+            if limit_chunk.is_some_and(|l| chunk_idx > l) {
+                continue;
+            }
+
+            if chunk_idx >= received.len() {
+                received.resize(chunk_idx + 1, false);
+            }
+            received.set(chunk_idx, true);
+
+            for &item in chunk.iter() {
+                if item.hash.normalize().starts_with(geohash) {
+                    let start = u64::from(item.ids_start);
+                    let end = u64::from(item.ids_end);
+                    ranges.push(ReadRange {
+                        byte_offset: start * size_of::<PointOffsetType>() as u64,
+                        length: end.saturating_sub(start),
+                    });
+                } else {
+                    limit_chunk = Some(limit_chunk.map_or(chunk_idx, |l| l.min(chunk_idx)));
+                    break;
                 }
-            })?;
+            }
 
-        Ok(())
+            if let Some(limit) = limit_chunk
+                && received[..limit].all()
+            {
+                break;
+            }
+        }
+
+        let ranges = ranges
+            .into_iter()
+            .flat_map(|r| r.iter_autochunks::<PointOffsetType>())
+            .map(|r| ((), r));
+        let mut iter = self
+            .storage
+            .points_map_ids
+            .read_iter::<Sequential, _>(ranges);
+        let mut current: Cow<'_, [PointOffsetType]> = Cow::Borrowed(&[]);
+        let mut chunk_pos_it = 0..0;
+
+        Ok(std::iter::from_fn(move || {
+            loop {
+                for pos in chunk_pos_it.by_ref() {
+                    let point_id = current[pos];
+                    if !self.storage.deleted.get(point_id as usize).unwrap_or(true) {
+                        return Some(Ok(point_id));
+                    }
+                }
+                match iter.next() {
+                    Some(Ok(((), data))) => {
+                        current = data;
+                        chunk_pos_it = 0..current.len();
+                    }
+                    Some(Err(e)) => return Some(Err(OperationError::from(e))),
+                    None => return None,
+                }
+            }
+        }))
     }
 
     pub fn points_count(&self) -> usize {

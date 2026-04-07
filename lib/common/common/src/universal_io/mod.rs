@@ -70,7 +70,7 @@ impl ReadRange {
 
     /// Split the range into a consecutive sequence of smaller ranges of
     /// reasonable size. Takes `T` as a hint for element size in bytes.
-    fn iter_autochunks<T>(self) -> impl Iterator<Item = ReadRange> {
+    pub fn iter_autochunks<T>(self) -> impl Iterator<Item = ReadRange> {
         // TODO: align chunks. Perhaps this method and `blocks_for_range_in_file`
         // can be unified.
         const MAX_CHUNK_BYTES: u64 = 16 * 1024;

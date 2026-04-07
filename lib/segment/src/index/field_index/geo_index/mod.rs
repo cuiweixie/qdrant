@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use ahash::HashSet;
 use common::counter::hardware_counter::HardwareCounterCell;
 use common::types::PointOffsetType;
-use common::universal_io::{MmapFile, UniversalRead};
+use common::universal_io::MmapFile;
 use itertools::Itertools;
 use mutable_geo_index::InMemoryGeoMapIndex;
 use serde_json::Value;
@@ -251,7 +251,9 @@ impl GeoMapIndex {
                 // But in future we might want to make it into proper iterator
                 let mut result = HashSet::default();
                 for top_geo_hash in values {
-                    index.stored_sub_regions(&mut result, top_geo_hash)?;
+                    for point_id in index.stored_sub_regions(top_geo_hash)? {
+                        result.insert(point_id?);
+                    }
                 }
                 Ok(Box::new(result.into_iter()))
             }
@@ -274,16 +276,9 @@ impl GeoMapIndex {
                 .points_per_hash()
                 .filter(filter_condition)
                 .collect_vec(),
-            GeoMapIndex::Mmap(index) => {
-                let mut result = vec![];
-                index.storage.counts_per_hash.for_each(|_, counts| {
-                    let item = (counts.hash.normalize(), counts.points as usize);
-                    if filter_condition(&item) {
-                        result.push(item);
-                    }
-                })?;
-                result
-            }
+            GeoMapIndex::Mmap(index) => index
+                .points_per_hash()?
+                .process_results(|iter| iter.filter(filter_condition).collect_vec())?,
         };
 
         // smallest regions first
