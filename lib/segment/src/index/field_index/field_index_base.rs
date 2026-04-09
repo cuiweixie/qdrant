@@ -654,7 +654,8 @@ impl<'a> StreamRange<OrderValue> for NumericFieldIndex<'a> {
     fn stream_range(
         &self,
         range: &RangeInterface,
-    ) -> OperationResult<Box<dyn DoubleEndedIterator<Item = (OrderValue, PointOffsetType)> + 'a>> {
+    ) -> OperationResult<Box<dyn DoubleEndedIterator<Item = (OrderValue, PointOffsetType)> + 'a>>
+    {
         Ok(match self {
             NumericFieldIndex::IntIndex(index) => Box::new(
                 index

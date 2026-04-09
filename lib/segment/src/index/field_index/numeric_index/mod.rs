@@ -398,7 +398,11 @@ where
     }
 
     /// Tries to estimate the amount of points for a given key.
-    pub fn estimate_points(&self, value: &T, hw_counter: &HardwareCounterCell) -> OperationResult<usize> {
+    pub fn estimate_points(
+        &self,
+        value: &T,
+        hw_counter: &HardwareCounterCell,
+    ) -> OperationResult<usize> {
         let start = Bound::Included(Point::new(*value, PointOffsetType::MIN));
         let end = Bound::Included(Point::new(*value, PointOffsetType::MAX));
 

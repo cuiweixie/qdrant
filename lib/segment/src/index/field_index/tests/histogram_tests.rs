@@ -12,10 +12,17 @@ use serde::de::DeserializeOwned;
 use crate::index::field_index::histogram::{Histogram, Numericable, Point};
 use crate::index::field_index::tests::histogram_test_utils::print_results;
 
-pub fn count_range<T: PartialOrd + Numericable>(points_index: &BTreeSet<Point<T>>, a: T, b: T) -> usize {
+pub fn count_range<T: PartialOrd + Numericable>(
+    points_index: &BTreeSet<Point<T>>,
+    a: T,
+    b: T,
+) -> usize {
     points_index
         .iter()
-        .filter(|x| { let v = x.val; a <= v && v <= b })
+        .filter(|x| {
+            let v = x.val;
+            a <= v && v <= b
+        })
         .count()
 }
 
@@ -28,7 +35,12 @@ fn test_build_histogram_small() {
 
     // let points = (0..100000).map(|i| Point { val: rnd.random_range(-10.0..10.0), idx: i }).collect_vec();
     let points = (0..num_samples)
-        .map(|i| Point::new(f64::round(rnd.sample::<f64, _>(StandardNormal) * 10.0), i % num_samples / 2))
+        .map(|i| {
+            Point::new(
+                f64::round(rnd.sample::<f64, _>(StandardNormal) * 10.0),
+                i % num_samples / 2,
+            )
+        })
         .collect_vec();
 
     let mut points_index: BTreeSet<Point<_>> = Default::default();
@@ -223,7 +235,8 @@ fn test_build_histogram_round() {
     let mut rnd = StdRng::seed_from_u64(42);
 
     // let points = (0..100000).map(|i| Point { val: rnd.random_range(-10.0..10.0), idx: i }).collect_vec();
-    let points = (0..num_samples).map(|i| Point::new(f64::round(rnd.sample::<f64, _>(StandardNormal) * 100.0), i));
+    let points = (0..num_samples)
+        .map(|i| Point::new(f64::round(rnd.sample::<f64, _>(StandardNormal) * 100.0), i));
     let (histogram, points_index) = build_histogram(max_bucket_size, precision, points.collect());
 
     request_histogram(&histogram, &points_index);

@@ -6,9 +6,9 @@ use common::counter::conditioned_counter::ConditionedCounter;
 use common::counter::hardware_counter::HardwareCounterCell;
 use common::counter::iterator_hw_measurement::HwMeasurementIteratorExt;
 use common::fs::{atomic_save_json, clear_disk_cache, read_json};
+use common::generic_consts::Random;
 use common::mmap::{MmapSlice, create_and_ensure_length};
 use common::types::PointOffsetType;
-use common::generic_consts::Random;
 use common::universal_io::{MmapFile, OpenOptions, ReadRange, TypedStorage, UniversalRead};
 use fs_err as fs;
 use memmap2::MmapMut;
@@ -387,12 +387,10 @@ impl<T: Encodable + Numericable + Default + StoredValue + bytemuck::Pod> MmapNum
         }
 
         let end_index = match end_bound {
-            Bound::Included(bound) => {
-                match self.binary_search_pairs(&bound, start_index, len)? {
-                    Ok(idx) => idx + 1,
-                    Err(idx) => idx,
-                }
-            }
+            Bound::Included(bound) => match self.binary_search_pairs(&bound, start_index, len)? {
+                Ok(idx) => idx + 1,
+                Err(idx) => idx,
+            },
             Bound::Excluded(bound) => self
                 .binary_search_pairs(&bound, start_index, len)?
                 .unwrap_or_else(|idx| idx),
