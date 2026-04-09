@@ -9,7 +9,8 @@ use common::fs::{atomic_save_json, clear_disk_cache, read_json};
 use common::mmap;
 use common::mmap::{AdviceSetting, MmapSlice, create_and_ensure_length};
 use common::types::PointOffsetType;
-use common::universal_io::{MmapFile, OpenOptions, UniversalRead};
+use common::generic_consts::Random;
+use common::universal_io::{MmapFile, OpenOptions, ReadRange, TypedStorage, UniversalRead};
 use fs_err as fs;
 use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
@@ -42,7 +43,7 @@ pub(super) struct Storage<
 > {
     deleted: MmapBitSliceBufferedUpdateWrapper,
     // sorted pairs (id + value), sorted by value (by id if values are equal)
-    pairs: MmapSlice<Point<T>>,
+    pairs: TypedStorage<S, Point<T>>,
     pub(super) point_to_values: StoredPointToValues<T, S>,
 }
 
