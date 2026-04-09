@@ -12,10 +12,10 @@ use serde::de::DeserializeOwned;
 use crate::index::field_index::histogram::{Histogram, Numericable, Point};
 use crate::index::field_index::tests::histogram_test_utils::print_results;
 
-pub fn count_range<T: PartialOrd>(points_index: &BTreeSet<Point<T>>, a: T, b: T) -> usize {
+pub fn count_range<T: PartialOrd + Numericable>(points_index: &BTreeSet<Point<T>>, a: T, b: T) -> usize {
     points_index
         .iter()
-        .filter(|x| a <= x.val && x.val <= b)
+        .filter(|x| { let v = x.val; a <= v && v <= b })
         .count()
 }
 

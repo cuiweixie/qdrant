@@ -70,7 +70,7 @@ pub trait Numericable: Num + PartialEq + PartialOrd + Copy + bytemuck::Pod {
     ///
     /// Since we need ['Point<T>`] to be repr(packed), this padding must be picked to be the next multiple of the largest
     /// field in the struct, which fits the entire struct.
-    type PointPadding: bytemuck::Pod + Debug + PartialEq + PartialOrd + Serialize;
+    type PointPadding: bytemuck::Pod + Debug + PartialEq + PartialOrd + Serialize + for<'de> serde::Deserialize<'de>;
 
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -90,8 +90,8 @@ pub trait Numericable: Num + PartialEq + PartialOrd + Copy + bytemuck::Pod {
 
 const fn derive_point_padding<T: bytemuck::Pod>() -> usize {
     struct Pointy<T> {
-        t: T,
-        idx: PointOffsetType,
+        _t: T,
+        _idx: PointOffsetType,
     }
     let align = std::mem::align_of::<Pointy<T>>();
     if align <= 1 {
