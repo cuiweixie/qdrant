@@ -402,7 +402,7 @@ impl<T: Encodable + Numericable + Default + StoredValue + bytemuck::Pod> MmapNum
         Ok((start_index, end_index))
     }
 
-    /// Read the sub-range and return an iterator over non-deleted pairs.
+    /// Returns an iterator over non-deleted pairs.
     fn values_range_iterator(
         &self,
         start_bound: Bound<Point<T>>,
@@ -411,6 +411,7 @@ impl<T: Encodable + Numericable + Default + StoredValue + bytemuck::Pod> MmapNum
         let (start_index, end_index) = self.values_range_bounds(start_bound, end_bound)?;
         let range_len = end_index - start_index;
 
+        // TODO(luis): don't read the entire thing at once
         let pairs = if range_len > 0 {
             self.storage.pairs.read::<Random>(ReadRange {
                 byte_offset: (start_index * size_of::<Point<T>>()) as u64,
